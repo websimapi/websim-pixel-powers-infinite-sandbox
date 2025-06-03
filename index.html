@@ -1,0 +1,1081 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pixel Powers - Infinite Sandbox</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #1a1a2e;
+            color: #eee;
+            font-family: 'Courier New', monospace;
+            overflow: hidden;
+        }
+        
+        #gameContainer {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+        }
+        
+        #gameCanvas {
+            display: block;
+            background: linear-gradient(45deg, #16213e, #0f3460);
+            image-rendering: pixelated;
+            cursor: crosshair;
+        }
+        
+        #ui {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 15px;
+            border-radius: 8px;
+            border: 2px solid #4a90e2;
+            min-width: 300px;
+        }
+        
+        #powerInfo {
+            margin-bottom: 10px;
+        }
+        
+        #powerName {
+            color: #4a90e2;
+            font-size: 18px;
+            font-weight: bold;
+            text-shadow: 0 0 10px #4a90e2;
+        }
+        
+        #powerLevel {
+            color: #ffd700;
+            font-size: 14px;
+        }
+        
+        #dataDisplay {
+            background: rgba(20, 20, 50, 0.9);
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+            border-left: 3px solid #4a90e2;
+        }
+        
+        #actionsLog {
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px;
+            border-radius: 8px;
+            max-width: 300px;
+            max-height: 200px;
+            overflow-y: auto;
+            font-size: 12px;
+        }
+        
+        .log-entry {
+            margin: 5px 0;
+            opacity: 0.8;
+        }
+        
+        .power-evolution {
+            color: #ffd700;
+            text-shadow: 0 0 5px #ffd700;
+        }
+        
+        #controls {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 10px;
+            border-radius: 8px;
+            font-size: 12px;
+        }
+        
+        .pixel-particle {
+            position: absolute;
+            width: 4px;
+            height: 4px;
+            pointer-events: none;
+            z-index: 50;
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <canvas id="gameCanvas"></canvas>
+        
+        <div id="ui">
+            <div id="powerInfo">
+                <div id="powerName">Loading Power...</div>
+                <div id="powerLevel">Level 1</div>
+            </div>
+            <div id="dataDisplay">
+                <div id="currentData">Initializing...</div>
+            </div>
+            <div id="evolutionHints" style="font-size: 11px; color: #888;">
+                Use your power to evolve it...
+            </div>
+        </div>
+        
+        <div id="actionsLog">
+            <div class="log-entry">Welcome to Pixel Powers!</div>
+        </div>
+        
+        <div id="controls">
+            <div>WASD: Move</div>
+            <div>Click: Use Power</div>
+            <div>Space: Activate Special</div>
+        </div>
+    </div>
+
+    <script>
+        // Initialize WebsimSocket for multiplayer data
+        const room = new WebsimSocket();
+        
+        // Game state
+        const game = {
+            canvas: null,
+            ctx: null,
+            player: {
+                x: 400,
+                y: 300,
+                size: 16,
+                speed: 3,
+                color: '#4a90e2'
+            },
+            camera: { x: 0, y: 0 },
+            world: {
+                chunks: new Map(),
+                chunkSize: 512
+            },
+            powers: null,
+            currentPower: null,
+            keys: {},
+            mouse: { x: 0, y: 0, clicked: false },
+            particles: [],
+            actions: [],
+            lastDataUpdate: Date.now()
+        };
+
+        // Extensive Superpower Database
+        const SUPERPOWERS = {
+            // Elemental Powers
+            pyrokinesis: {
+                name: "Pyrokinesis",
+                description: "Control over fire and heat",
+                dataSource: "temperature",
+                baseDataPoint: "ambient_temperature",
+                visualEffect: "Swirling orange and red flames with sparks",
+                color: "#ff4500",
+                evolution: {
+                    heat_manipulation: "Precise temperature control",
+                    plasma_control: "Control over plasma states",
+                    solar_absorption: "Absorb energy from sunlight"
+                },
+                behaviors: ["clicking_rapidly", "moving_in_circles", "staying_still"]
+            },
+            
+            hydrokinesis: {
+                name: "Hydrokinesis", 
+                description: "Control over water and liquids",
+                dataSource: "weather",
+                baseDataPoint: "humidity_percentage",
+                visualEffect: "Flowing blue water streams with droplets",
+                color: "#1e90ff",
+                evolution: {
+                    ice_control: "Freeze and shape ice",
+                    blood_manipulation: "Control biological fluids",
+                    weather_control: "Influence precipitation"
+                },
+                behaviors: ["smooth_movement", "following_patterns", "clustering"]
+            },
+
+            geokinesis: {
+                name: "Geokinesis",
+                description: "Control over earth and stone",
+                dataSource: "seismic",
+                baseDataPoint: "earthquake_magnitude",
+                visualEffect: "Floating brown and gray rock fragments",
+                color: "#8b4513",
+                evolution: {
+                    metal_manipulation: "Control metallic elements",
+                    crystal_growth: "Generate crystalline structures",
+                    tectonic_force: "Influence geological formations"
+                },
+                behaviors: ["building_structures", "defensive_positioning", "methodical_movement"]
+            },
+
+            aerokinesis: {
+                name: "Aerokinesis",
+                description: "Control over air and wind",
+                dataSource: "weather",
+                baseDataPoint: "wind_speed",
+                visualEffect: "Swirling white and light blue wind currents",
+                color: "#87ceeb",
+                evolution: {
+                    storm_calling: "Summon powerful storms",
+                    flight: "Achieve sustained flight",
+                    sound_manipulation: "Control acoustic waves"
+                },
+                behaviors: ["erratic_movement", "high_speed_actions", "aerial_patterns"]
+            },
+
+            // Mental Powers
+            telepathy: {
+                name: "Telepathy",
+                description: "Read and project thoughts",
+                dataSource: "social_media",
+                baseDataPoint: "message_sentiment",
+                visualEffect: "Purple brain wave patterns with neural connections",
+                color: "#9370db",
+                evolution: {
+                    mind_control: "Influence others' thoughts",
+                    memory_manipulation: "Alter or extract memories",
+                    collective_consciousness: "Connect to group minds"
+                },
+                behaviors: ["observing_others", "pattern_recognition", "strategic_positioning"]
+            },
+
+            telekinesis: {
+                name: "Telekinesis",
+                description: "Move objects with the mind",
+                dataSource: "physics",
+                baseDataPoint: "gravitational_force",
+                visualEffect: "Glowing telekinetic energy tendrils in cyan",
+                color: "#00ffff",
+                evolution: {
+                    molecular_manipulation: "Control matter at atomic level",
+                    force_fields: "Create protective barriers",
+                    dimensional_shifting: "Move objects through space"
+                },
+                behaviors: ["precise_movements", "object_interaction", "levitation_practice"]
+            },
+
+            precognition: {
+                name: "Precognition",
+                description: "See future events",
+                dataSource: "market",
+                baseDataPoint: "stock_volatility",
+                visualEffect: "Shimmering golden future visions and time ripples",
+                color: "#ffd700",
+                evolution: {
+                    temporal_sight: "See multiple timeline branches",
+                    probability_manipulation: "Influence future outcomes",
+                    prophetic_dreams: "Receive detailed future visions"
+                },
+                behaviors: ["predictive_actions", "cautious_movement", "information_gathering"]
+            },
+
+            // Physical Powers
+            super_strength: {
+                name: "Super Strength",
+                description: "Incredible physical power",
+                dataSource: "fitness",
+                baseDataPoint: "muscle_efficiency",
+                visualEffect: "Red energy aura with power surge effects",
+                color: "#dc143c",
+                evolution: {
+                    invulnerability: "Resistance to physical damage",
+                    seismic_impact: "Ground-shaking strikes",
+                    molecular_density: "Alter body density"
+                },
+                behaviors: ["aggressive_actions", "direct_approaches", "power_demonstrations"]
+            },
+
+            super_speed: {
+                name: "Super Speed",
+                description: "Move at incredible velocities",
+                dataSource: "transportation",
+                baseDataPoint: "traffic_flow_rate",
+                visualEffect: "Yellow lightning trails with speed lines",
+                color: "#ffff00",
+                evolution: {
+                    time_dilation: "Move between time frames",
+                    dimensional_running: "Run through dimensions",
+                    kinetic_energy: "Build up kinetic force"
+                },
+                behaviors: ["rapid_movement", "exploration", "hit_and_run_tactics"]
+            },
+
+            invisibility: {
+                name: "Invisibility",
+                description: "Become unseen by others",
+                dataSource: "surveillance",
+                baseDataPoint: "camera_detection_rate",
+                visualEffect: "Shimmering transparent distortion effects",
+                color: "#c0c0c0",
+                evolution: {
+                    phase_shifting: "Move through solid objects",
+                    light_bending: "Control light refraction",
+                    dimensional_hiding: "Hide in parallel dimensions"
+                },
+                behaviors: ["stealth_movement", "avoiding_detection", "observation"]
+            },
+
+            // Energy Powers
+            electrokinesis: {
+                name: "Electrokinesis",
+                description: "Control over electricity",
+                dataSource: "power_grid",
+                baseDataPoint: "electrical_usage",
+                visualEffect: "Crackling blue-white lightning bolts",
+                color: "#0080ff",
+                evolution: {
+                    magnetic_fields: "Control electromagnetic forces",
+                    tech_interface: "Interface with electronic devices",
+                    bio_electricity: "Control neural impulses"
+                },
+                behaviors: ["tech_interaction", "energetic_movement", "circuit_patterns"]
+            },
+
+            photokinesis: {
+                name: "Photokinesis",
+                description: "Control over light",
+                dataSource: "solar",
+                baseDataPoint: "solar_irradiance",
+                visualEffect: "Brilliant white light beams with rainbow prismatic effects",
+                color: "#ffffff",
+                evolution: {
+                    hard_light: "Create solid light constructs",
+                    laser_precision: "Focus light into cutting beams",
+                    illumination_mastery: "Control all light sources"
+                },
+                behaviors: ["bright_displays", "precision_targeting", "area_illumination"]
+            },
+
+            umbrakinesis: {
+                name: "Umbrakinesis",
+                description: "Control over darkness and shadows",
+                dataSource: "astronomical",
+                baseDataPoint: "lunar_phase",
+                visualEffect: "Writhing black tendrils with void-like darkness",
+                color: "#2f2f2f",
+                evolution: {
+                    shadow_travel: "Move through shadows instantly",
+                    void_creation: "Create areas of absolute darkness",
+                    nightmare_weaving: "Manifest fears from shadows"
+                },
+                behaviors: ["stealth_tactics", "darkness_seeking", "fear_inducement"]
+            },
+
+            // Nature Powers
+            florakinesis: {
+                name: "Florakinesis",
+                description: "Control over plant life",
+                dataSource: "environmental",
+                baseDataPoint: "vegetation_growth_rate",
+                visualEffect: "Growing green vines with blooming flowers",
+                color: "#228b22",
+                evolution: {
+                    ecosystem_harmony: "Balance entire ecosystems",
+                    toxic_plants: "Create poisonous vegetation",
+                    forest_networking: "Connect with plant consciousness"
+                },
+                behaviors: ["growth_patterns", "natural_harmony", "protective_instincts"]
+            },
+
+            zoolingualism: {
+                name: "Zoolingualism",
+                description: "Communicate with animals",
+                dataSource: "wildlife",
+                baseDataPoint: "animal_population_density",
+                visualEffect: "Swirling animal spirit silhouettes in amber",
+                color: "#daa520",
+                evolution: {
+                    animal_shapeshifting: "Take animal forms",
+                    pack_leadership: "Command animal groups",
+                    primal_instincts: "Access ancient animal wisdom"
+                },
+                behaviors: ["pack_behavior", "territorial_marking", "hunting_patterns"]
+            },
+
+            // Time/Space Powers
+            chronokinesis: {
+                name: "Chronokinesis",
+                description: "Control over time",
+                dataSource: "atomic_clock",
+                baseDataPoint: "time_dilation_factor",
+                visualEffect: "Spiraling clock gears with temporal distortions",
+                color: "#4b0082",
+                evolution: {
+                    time_stop: "Freeze time completely",
+                    temporal_loops: "Create repeating time cycles",
+                    age_manipulation: "Control aging processes"
+                },
+                behaviors: ["precise_timing", "repetitive_actions", "temporal_experiments"]
+            },
+
+            teleportation: {
+                name: "Teleportation", 
+                description: "Instant movement through space",
+                dataSource: "gps",
+                baseDataPoint: "location_accuracy",
+                visualEffect: "Swirling portal rings with spatial tears",
+                color: "#800080",
+                evolution: {
+                    dimensional_gates: "Open permanent portals",
+                    mass_teleportation: "Transport multiple objects",
+                    quantum_tunneling: "Move through quantum barriers"
+                },
+                behaviors: ["sudden_movement", "spatial_awareness", "escape_tactics"]
+            },
+
+            // Technology Powers
+            technomancy: {
+                name: "Technomancy",
+                description: "Control over technology",
+                dataSource: "network",
+                baseDataPoint: "data_transfer_rate",
+                visualEffect: "Digital circuit patterns with data streams",
+                color: "#00ff00",
+                evolution: {
+                    ai_integration: "Merge with artificial intelligence",
+                    cyber_warfare: "Hack any digital system",
+                    tech_creation: "Manifest technology from energy"
+                },
+                behaviors: ["systematic_approaches", "data_collection", "network_building"]
+            },
+
+            data_manipulation: {
+                name: "Data Manipulation",
+                description: "Control over information itself",
+                dataSource: "database",
+                baseDataPoint: "information_entropy",
+                visualEffect: "Flowing streams of binary code and data packets",
+                color: "#00ced1",
+                evolution: {
+                    reality_hacking: "Alter fundamental laws through data",
+                    information_absorption: "Learn instantly from data sources",
+                    digital_immortality: "Exist as pure information"
+                },
+                behaviors: ["information_processing", "logical_patterns", "data_optimization"]
+            },
+
+            // Cosmic Powers
+            cosmic_awareness: {
+                name: "Cosmic Awareness",
+                description: "Perception of universal forces",
+                dataSource: "space",
+                baseDataPoint: "cosmic_radiation_level",
+                visualEffect: "Swirling galaxy patterns with stardust",
+                color: "#191970",
+                evolution: {
+                    universal_connection: "Link to all cosmic entities",
+                    stellar_manipulation: "Control star formation",
+                    dimensional_sight: "See across all dimensions"
+                },
+                behaviors: ["cosmic_meditation", "universal_patterns", "stellar_observation"]
+            },
+
+            gravity_control: {
+                name: "Gravity Control",
+                description: "Manipulate gravitational forces",
+                dataSource: "physics",
+                baseDataPoint: "gravitational_waves",
+                visualEffect: "Rippling space-time distortions in purple",
+                color: "#663399",
+                evolution: {
+                    black_hole_creation: "Generate miniature black holes",
+                    antigravity_fields: "Create zero-gravity zones",
+                    mass_alteration: "Change object mass"
+                },
+                behaviors: ["orbital_patterns", "gravitational_experiments", "mass_manipulation"]
+            },
+
+            // Unique Powers
+            probability_manipulation: {
+                name: "Probability Manipulation",
+                description: "Alter chance and luck",
+                dataSource: "random",
+                baseDataPoint: "entropy_level",
+                visualEffect: "Dice and probability waves in rainbow colors",
+                color: "#ff69b4",
+                evolution: {
+                    fate_weaving: "Control destiny itself",
+                    chaos_mastery: "Harness random forces",
+                    quantum_uncertainty: "Manipulate quantum probabilities"
+                },
+                behaviors: ["random_actions", "risk_taking", "luck_testing"]
+            },
+
+            energy_absorption: {
+                name: "Energy Absorption",
+                description: "Absorb and redirect energy",
+                dataSource: "energy",
+                baseDataPoint: "energy_consumption_rate",
+                visualEffect: "Swirling energy vortex with absorption streams",
+                color: "#ff1493",
+                evolution: {
+                    energy_conversion: "Transform energy types",
+                    power_amplification: "Boost absorbed energy",
+                    energy_vampire: "Drain life force from others"
+                },
+                behaviors: ["energy_seeking", "absorption_practice", "power_building"]
+            }
+        };
+
+        // Data simulation system
+        class DataSimulator {
+            constructor() {
+                this.dataSources = {
+                    temperature: () => 15 + Math.sin(Date.now() / 10000) * 10 + Math.random() * 5,
+                    weather: () => ({
+                        humidity: 40 + Math.random() * 40,
+                        wind_speed: Math.random() * 25,
+                        pressure: 1000 + Math.random() * 50
+                    }),
+                    seismic: () => Math.random() * 3,
+                    social_media: () => (Math.random() - 0.5) * 2, // sentiment -1 to 1
+                    physics: () => 9.81 + (Math.random() - 0.5) * 0.1,
+                    market: () => Math.random() * 100,
+                    fitness: () => 75 + Math.random() * 25,
+                    transportation: () => 30 + Math.random() * 70,
+                    surveillance: () => Math.random() * 100,
+                    power_grid: () => 1000 + Math.random() * 500,
+                    solar: () => 800 + Math.random() * 400,
+                    astronomical: () => Math.random(), // lunar phase 0-1
+                    environmental: () => 2 + Math.random() * 3,
+                    wildlife: () => 50 + Math.random() * 100,
+                    atomic_clock: () => 1 + (Math.random() - 0.5) * 0.000001,
+                    gps: () => 1 + Math.random() * 10, // meters accuracy
+                    network: () => 100 + Math.random() * 900, // Mbps
+                    database: () => Math.random() * 10,
+                    space: () => 2.7 + Math.random() * 0.3, // cosmic background radiation
+                    random: () => Math.random(),
+                    energy: () => 1000 + Math.random() * 2000
+                };
+                this.cache = {};
+                this.lastUpdate = {};
+            }
+
+            getData(source, field) {
+                const now = Date.now();
+                const cacheKey = `${source}_${field}`;
+                
+                if (!this.lastUpdate[cacheKey] || now - this.lastUpdate[cacheKey] > 1000) {
+                    const sourceData = this.dataSources[source]();
+                    this.cache[cacheKey] = typeof sourceData === 'object' ? sourceData[field] || sourceData : sourceData;
+                    this.lastUpdate[cacheKey] = now;
+                }
+                
+                return this.cache[cacheKey];
+            }
+        }
+
+        // Power evolution system
+        class PowerEvolution {
+            constructor() {
+                this.behaviorTracker = {};
+                this.actionHistory = [];
+                this.evolutionThresholds = {
+                    level2: 50,
+                    level3: 150,
+                    level4: 300,
+                    level5: 500
+                };
+            }
+
+            trackAction(action, context = {}) {
+                this.actionHistory.push({
+                    action,
+                    context,
+                    timestamp: Date.now()
+                });
+
+                // Keep only recent actions
+                if (this.actionHistory.length > 1000) {
+                    this.actionHistory = this.actionHistory.slice(-500);
+                }
+
+                this.analyzeBehaviorPatterns();
+            }
+
+            analyzeBehaviorPatterns() {
+                const recentActions = this.actionHistory.slice(-50);
+                const patterns = {};
+
+                // Analyze movement patterns
+                const movements = recentActions.filter(a => a.action === 'move');
+                if (movements.length > 10) {
+                    const avgSpeed = movements.reduce((sum, m) => sum + (m.context.speed || 0), 0) / movements.length;
+                    patterns.movement_speed = avgSpeed > 5 ? 'fast' : avgSpeed > 2 ? 'moderate' : 'slow';
+                    
+                    // Check for circular patterns
+                    const positions = movements.map(m => ({ x: m.context.x, y: m.context.y }));
+                    patterns.movement_pattern = this.detectCircularMovement(positions) ? 'circular' : 'linear';
+                }
+
+                // Analyze power usage
+                const powerUses = recentActions.filter(a => a.action === 'use_power');
+                patterns.power_frequency = powerUses.length > 20 ? 'frequent' : powerUses.length > 5 ? 'moderate' : 'rare';
+
+                // Analyze interaction patterns
+                const interactions = recentActions.filter(a => a.action === 'interact');
+                patterns.interaction_style = interactions.length > 15 ? 'social' : interactions.length > 5 ? 'selective' : 'solitary';
+
+                this.behaviorTracker = { ...this.behaviorTracker, ...patterns };
+                this.checkEvolution();
+            }
+
+            detectCircularMovement(positions) {
+                if (positions.length < 10) return false;
+                
+                const center = {
+                    x: positions.reduce((sum, p) => sum + p.x, 0) / positions.length,
+                    y: positions.reduce((sum, p) => sum + p.y, 0) / positions.length
+                };
+
+                const distances = positions.map(p => 
+                    Math.sqrt((p.x - center.x) ** 2 + (p.y - center.y) ** 2)
+                );
+
+                const avgDistance = distances.reduce((sum, d) => sum + d, 0) / distances.length;
+                const variance = distances.reduce((sum, d) => sum + (d - avgDistance) ** 2, 0) / distances.length;
+                
+                return variance < avgDistance * 0.3; // Low variance indicates circular movement
+            }
+
+            checkEvolution() {
+                const currentPower = game.currentPower;
+                if (!currentPower) return;
+
+                const actionCount = this.actionHistory.length;
+                const currentLevel = currentPower.level || 1;
+
+                // Check if we should evolve
+                for (const [levelName, threshold] of Object.entries(this.evolutionThresholds)) {
+                    const level = parseInt(levelName.replace('level', ''));
+                    if (level > currentLevel && actionCount >= threshold) {
+                        this.evolvePower(level);
+                        break;
+                    }
+                }
+            }
+
+            evolvePower(newLevel) {
+                const power = game.currentPower;
+                if (!power) return;
+
+                power.level = newLevel;
+                
+                // Add new abilities based on behavior patterns
+                const behaviors = this.behaviorTracker;
+                const powerData = SUPERPOWERS[power.id];
+                
+                if (powerData.evolution) {
+                    // Select evolution based on behavior
+                    let evolutionKey = Object.keys(powerData.evolution)[0]; // default
+                    
+                    if (behaviors.movement_speed === 'fast' && powerData.evolution.speed_enhancement) {
+                        evolutionKey = 'speed_enhancement';
+                    } else if (behaviors.power_frequency === 'frequent' && powerData.evolution.power_amplification) {
+                        evolutionKey = 'power_amplification';
+                    } else if (behaviors.interaction_style === 'social' && powerData.evolution.collective_consciousness) {
+                        evolutionKey = 'collective_consciousness';
+                    }
+
+                    power.evolutions = power.evolutions || [];
+                    if (!power.evolutions.includes(evolutionKey)) {
+                        power.evolutions.push(evolutionKey);
+                        
+                        // Add new visual effects for evolution
+                        power.visualEffects = power.visualEffects || [powerData.visualEffect];
+                        power.visualEffects.push(powerData.evolution[evolutionKey]);
+                        
+                        this.logEvolution(power.name, evolutionKey, powerData.evolution[evolutionKey]);
+                    }
+                }
+
+                this.savePowerData();
+            }
+
+            logEvolution(powerName, evolutionKey, description) {
+                const logElement = document.getElementById('actionsLog');
+                const entry = document.createElement('div');
+                entry.className = 'log-entry power-evolution';
+                entry.textContent = `🌟 ${powerName} evolved: ${description}`;
+                logElement.appendChild(entry);
+                
+                // Keep log manageable
+                while (logElement.children.length > 10) {
+                    logElement.removeChild(logElement.firstChild);
+                }
+            }
+
+            savePowerData() {
+                localStorage.setItem('pixelPowerData', JSON.stringify({
+                    currentPower: game.currentPower,
+                    behaviorTracker: this.behaviorTracker,
+                    actionHistory: this.actionHistory.slice(-100) // Save recent history
+                }));
+            }
+
+            loadPowerData() {
+                const saved = localStorage.getItem('pixelPowerData');
+                if (saved) {
+                    const data = JSON.parse(saved);
+                    this.behaviorTracker = data.behaviorTracker || {};
+                    this.actionHistory = data.actionHistory || [];
+                    return data.currentPower;
+                }
+                return null;
+            }
+        }
+
+        // Visual effects system
+        class VisualEffects {
+            constructor(ctx) {
+                this.ctx = ctx;
+                this.particles = [];
+            }
+
+            async generatePowerEffect(power, x, y, intensity = 1) {
+                const powerData = SUPERPOWERS[power.id];
+                if (!powerData) return;
+
+                // Generate visual description for AI
+                const prompt = `${powerData.visualEffect} emanating from position, intensity ${intensity}, magical pixel art style`;
+                
+                try {
+                    // Create particle effect based on power
+                    this.createParticleEffect(power, x, y, intensity);
+                    
+                    // Optionally generate AI image for special effects
+                    if (intensity > 2) {
+                        const result = await websim.imageGen({
+                            prompt: prompt,
+                            aspect_ratio: "1:1",
+                            transparent: true
+                        });
+                        // Could overlay generated effect image
+                    }
+                } catch (error) {
+                    console.log('Visual effect generated without AI enhancement');
+                    this.createParticleEffect(power, x, y, intensity);
+                }
+            }
+
+            createParticleEffect(power, x, y, intensity) {
+                const powerData = SUPERPOWERS[power.id];
+                const color = powerData.color;
+                const count = Math.floor(10 * intensity);
+
+                for (let i = 0; i < count; i++) {
+                    this.particles.push({
+                        x: x + (Math.random() - 0.5) * 20,
+                        y: y + (Math.random() - 0.5) * 20,
+                        vx: (Math.random() - 0.5) * 4,
+                        vy: (Math.random() - 0.5) * 4,
+                        color: color,
+                        life: 1.0,
+                        maxLife: 60,
+                        size: 2 + Math.random() * 3,
+                        type: power.id
+                    });
+                }
+            }
+
+            updateParticles() {
+                this.particles = this.particles.filter(particle => {
+                    particle.x += particle.vx;
+                    particle.y += particle.vy;
+                    particle.life -= 1/particle.maxLife;
+                    
+                    if (particle.life <= 0) return false;
+
+                    // Draw particle
+                    this.ctx.save();
+                    this.ctx.globalAlpha = particle.life;
+                    this.ctx.fillStyle = particle.color;
+                    this.ctx.fillRect(
+                        Math.floor(particle.x - game.camera.x), 
+                        Math.floor(particle.y - game.camera.y), 
+                        particle.size, 
+                        particle.size
+                    );
+                    this.ctx.restore();
+                    
+                    return true;
+                });
+            }
+        }
+
+        // Game initialization
+        function initGame() {
+            game.canvas = document.getElementById('gameCanvas');
+            game.ctx = game.canvas.getContext('2d');
+            
+            // Set canvas size
+            game.canvas.width = window.innerWidth;
+            game.canvas.height = window.innerHeight;
+            
+            // Initialize systems
+            game.dataSimulator = new DataSimulator();
+            game.powerEvolution = new PowerEvolution();
+            game.visualEffects = new VisualEffects(game.ctx);
+            
+            // Load or assign power
+            initializePower();
+            
+            // Set up event listeners
+            setupEventListeners();
+            
+            // Start game loop
+            gameLoop();
+            
+            // Update UI periodically
+            setInterval(updateUI, 1000);
+        }
+
+        function initializePower() {
+            // Try to load existing power
+            const savedPower = game.powerEvolution.loadPowerData();
+            
+            if (savedPower) {
+                game.currentPower = savedPower;
+            } else {
+                // Assign random power
+                const powerKeys = Object.keys(SUPERPOWERS);
+                const randomKey = powerKeys[Math.floor(Math.random() * powerKeys.length)];
+                const powerData = SUPERPOWERS[randomKey];
+                
+                game.currentPower = {
+                    id: randomKey,
+                    name: powerData.name,
+                    level: 1,
+                    evolutions: [],
+                    visualEffects: [powerData.visualEffect],
+                    assignedAt: Date.now()
+                };
+                
+                game.powerEvolution.savePowerData();
+            }
+            
+            updatePowerDisplay();
+        }
+
+        function updatePowerDisplay() {
+            const power = game.currentPower;
+            if (!power) return;
+            
+            document.getElementById('powerName').textContent = power.name;
+            document.getElementById('powerLevel').textContent = `Level ${power.level}`;
+            
+            // Update evolution hints
+            const powerData = SUPERPOWERS[power.id];
+            const hints = powerData.behaviors.join(', ');
+            document.getElementById('evolutionHints').textContent = 
+                `Evolution hints: ${hints}`;
+        }
+
+        function updateUI() {
+            const power = game.currentPower;
+            if (!power) return;
+            
+            const powerData = SUPERPOWERS[power.id];
+            const dataValue = game.dataSimulator.getData(powerData.dataSource, powerData.baseDataPoint);
+            
+            let displayValue = dataValue;
+            if (typeof dataValue === 'number') {
+                displayValue = dataValue.toFixed(2);
+            }
+            
+            document.getElementById('currentData').innerHTML = 
+                `<strong>${powerData.baseDataPoint}:</strong> ${displayValue}`;
+        }
+
+        function setupEventListeners() {
+            // Keyboard events
+            document.addEventListener('keydown', (e) => {
+                game.keys[e.code] = true;
+                
+                if (e.code === 'Space') {
+                    e.preventDefault();
+                    usePowerSpecial();
+                }
+            });
+            
+            document.addEventListener('keyup', (e) => {
+                game.keys[e.code] = false;
+            });
+            
+            // Mouse events
+            game.canvas.addEventListener('mousemove', (e) => {
+                const rect = game.canvas.getBoundingClientRect();
+                game.mouse.x = e.clientX - rect.left + game.camera.x;
+                game.mouse.y = e.clientY - rect.top + game.camera.y;
+            });
+            
+            game.canvas.addEventListener('click', (e) => {
+                game.mouse.clicked = true;
+                usePower(game.mouse.x, game.mouse.y);
+            });
+            
+            // Window resize
+            window.addEventListener('resize', () => {
+                game.canvas.width = window.innerWidth;
+                game.canvas.height = window.innerHeight;
+            });
+        }
+
+        function usePower(x, y) {
+            const power = game.currentPower;
+            if (!power) return;
+            
+            // Track action for evolution
+            game.powerEvolution.trackAction('use_power', {
+                x: x,
+                y: y,
+                powerLevel: power.level,
+                timestamp: Date.now()
+            });
+            
+            // Calculate intensity based on data
+            const powerData = SUPERPOWERS[power.id];
+            const dataValue = game.dataSimulator.getData(powerData.dataSource, powerData.baseDataPoint);
+            const intensity = Math.max(0.5, Math.min(3, dataValue / 50));
+            
+            // Create visual effect
+            game.visualEffects.generatePowerEffect(power, x, y, intensity);
+            
+            // Log action
+            logAction(`Used ${power.name} (Intensity: ${intensity.toFixed(1)})`);
+        }
+
+        function usePowerSpecial() {
+            const power = game.currentPower;
+            if (!power) return;
+            
+            // Special ability based on power level and evolutions
+            const intensity = power.level + power.evolutions.length;
+            game.visualEffects.generatePowerEffect(
+                power, 
+                game.player.x, 
+                game.player.y, 
+                intensity
+            );
+            
+            logAction(`${power.name} Special Activated!`);
+        }
+
+        function logAction(text) {
+            const logElement = document.getElementById('actionsLog');
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            entry.textContent = text;
+            logElement.appendChild(entry);
+            
+            while (logElement.children.length > 8) {
+                logElement.removeChild(logElement.firstChild);
+            }
+        }
+
+        function updatePlayer() {
+            const speed = game.player.speed;
+            let moved = false;
+            
+            if (game.keys['KeyW'] || game.keys['ArrowUp']) {
+                game.player.y -= speed;
+                moved = true;
+            }
+            if (game.keys['KeyS'] || game.keys['ArrowDown']) {
+                game.player.y += speed;
+                moved = true;
+            }
+            if (game.keys['KeyA'] || game.keys['ArrowLeft']) {
+                game.player.x -= speed;
+                moved = true;
+            }
+            if (game.keys['KeyD'] || game.keys['ArrowRight']) {
+                game.player.x += speed;
+                moved = true;
+            }
+            
+            if (moved) {
+                game.powerEvolution.trackAction('move', {
+                    x: game.player.x,
+                    y: game.player.y,
+                    speed: speed
+                });
+            }
+            
+            // Update camera to follow player
+            game.camera.x = game.player.x - game.canvas.width / 2;
+            game.camera.y = game.player.y - game.canvas.height / 2;
+        }
+
+        function render() {
+            const ctx = game.ctx;
+            
+            // Clear canvas
+            ctx.fillStyle = '#0a0a1a';
+            ctx.fillRect(0, 0, game.canvas.width, game.canvas.height);
+            
+            // Draw simple grid for infinite world feel
+            ctx.strokeStyle = '#1a1a3a';
+            ctx.lineWidth = 1;
+            
+            const gridSize = 50;
+            const startX = Math.floor(game.camera.x / gridSize) * gridSize;
+            const startY = Math.floor(game.camera.y / gridSize) * gridSize;
+            
+            for (let x = startX; x < game.camera.x + game.canvas.width; x += gridSize) {
+                ctx.beginPath();
+                ctx.moveTo(x - game.camera.x, 0);
+                ctx.lineTo(x - game.camera.x, game.canvas.height);
+                ctx.stroke();
+            }
+            
+            for (let y = startY; y < game.camera.y + game.canvas.height; y += gridSize) {
+                ctx.beginPath();
+                ctx.moveTo(0, y - game.camera.y);
+                ctx.lineTo(game.canvas.width, y - game.camera.y);
+                ctx.stroke();
+            }
+            
+            // Draw player
+            ctx.fillStyle = game.player.color;
+            ctx.fillRect(
+                game.player.x - game.camera.x - game.player.size/2,
+                game.player.y - game.camera.y - game.player.size/2,
+                game.player.size,
+                game.player.size
+            );
+            
+            // Draw power aura around player
+            if (game.currentPower) {
+                const powerData = SUPERPOWERS[game.currentPower.id];
+                ctx.save();
+                ctx.globalAlpha = 0.3;
+                ctx.fillStyle = powerData.color;
+                ctx.fillRect(
+                    game.player.x - game.camera.x - game.player.size,
+                    game.player.y - game.camera.y - game.player.size,
+                    game.player.size * 2,
+                    game.player.size * 2
+                );
+                ctx.restore();
+            }
+            
+            // Update and draw visual effects
+            game.visualEffects.updateParticles();
+        }
+
+        function gameLoop() {
+            updatePlayer();
+            render();
+            requestAnimationFrame(gameLoop);
+        }
+
+        // Start the game when page loads
+        window.addEventListener('load', initGame);
+    </script>
+<script defer src="https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516" integrity="sha512-8DS7rgIrAmghBFwoOTujcf6D9rXvH8xm8JQ1Ja01h9QX8EzXldiszufYa4IFfKdLUKTTrnSFXLDkUEOTrZQ8Qg==" data-cf-beacon='{"version":"2024.11.0","token":"4c6229722a6346bc8eb5cb0e5eae5d41","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
+</body>
+</html>
+
